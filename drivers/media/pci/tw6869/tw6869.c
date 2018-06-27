@@ -297,7 +297,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 			ID2CH(id), sig ? "detected" : "lost");
 		vch->sig = sig;
 		if (sig && vch->sequence)
-			mod_delayed_work(system_wq, &vch->hw_rst, HZ / 5);
+			mod_delayed_work(system_wq, &vch->hw_rst, HZ);
 	}
 
 	if (err || (vch->pb != pb)) {
