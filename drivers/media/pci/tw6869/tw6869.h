@@ -116,4 +116,8 @@
 /* 0x1D0, 0x2D0 */
 #define R8_AIGAIN_CTRL(id)         ((IS_CH03(id) ? 0x740 : 0xB40) + ID2SC(id) * 0x04)
 
+//#define TW6869_HW_RESET _IO('v', BASE_VIDIOC_PRIVATE + 3)
+
+#define TW6869_HW_RESET_IOCTL BASE_VIDIOC_PRIVATE + 3
+
 #endif /* __TW6869_H */

@@ -297,7 +297,11 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 			ID2CH(id), sig ? "detected" : "lost");
 		vch->sig = sig;
 		if (sig && vch->sequence)
-			mod_delayed_work(system_wq, &vch->hw_rst, HZ);
+		{
+		    dev_info(&dev->pdev->dev, "vch%u hw_rst\n",
+		                ID2CH(id));
+			mod_delayed_work(system_wq, &vch->hw_rst, HZ/5);
+		}
 	}
 
 	if (err || (vch->pb != pb)) {
@@ -718,6 +722,32 @@ static int tw6869_enum_fmt_vid_cap(struct file *file, void *priv,
 	return 0;
 }
 
+static long custom_ioctl(struct file *file, void *priv,
+                         bool valid_prio, unsigned int cmd, void *arg)
+{
+
+    struct tw6869_vch *vch = video_drvdata(file);
+    struct tw6869_dev *dev = vch->dev;
+    dev_info(&dev->pdev->dev, "vch%i Custom IOCTL %u\n",
+        ID2CH(vch->id), cmd);
+    switch (cmd)
+    {
+        case TW6869_HW_RESET_IOCTL:
+
+            dev_info(&dev->pdev->dev, "vch%i manual reset TW6869_HW_RESET_IOCTL\n",
+                ID2CH(vch->id));
+            if (vch->sig && vch->sequence)
+                mod_delayed_work(system_wq, &vch->hw_rst, HZ/5);
+            break;
+        default:
+            dev_info(&dev->pdev->dev, "vch%i the only custom command is %u\n",
+                ID2CH(vch->id), TW6869_HW_RESET_IOCTL);
+            return -EINVAL;
+    }
+
+    return 0;
+}
+
 static int tw6869_enum_framesizes(struct file *file, void *priv,
 				  struct v4l2_frmsizeenum *fsize)
 {
@@ -939,6 +969,7 @@ static const struct v4l2_ioctl_ops tw6869_ioctl_ops = {
 	.vidioc_log_status = v4l2_ctrl_log_status,
 	.vidioc_subscribe_event = v4l2_ctrl_subscribe_event,
 	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
+	.vidioc_default = custom_ioctl,
 };
 
 static const struct v4l2_file_operations tw6869_fops = {
