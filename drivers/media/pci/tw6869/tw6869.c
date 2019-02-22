@@ -98,6 +98,7 @@ struct tw6869_vch {
 	struct vb2_queue queue;
 	struct list_head buf_list;
 	struct delayed_work hw_rst;
+	unsigned long hw_rst_delay;
 	spinlock_t lock;
 
 	struct v4l2_ctrl_handler hdl;
@@ -300,7 +301,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 		{
 		    dev_info(&dev->pdev->dev, "vch%u hw_rst\n",
 		                ID2CH(id));
-			mod_delayed_work(system_wq, &vch->hw_rst, HZ/5);
+			mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
 		}
 	}
 
@@ -722,6 +723,24 @@ static int tw6869_enum_fmt_vid_cap(struct file *file, void *priv,
 	return 0;
 }
 
+static int tw6869_vch_set_delay(struct tw6869_vch *vch, unsigned long *delay)
+{
+    struct tw6869_dev *dev = vch->dev;
+
+    if (*delay>0)
+    {
+    vch->hw_rst_delay = *delay;
+    dev_info(&dev->pdev->dev, "vch%i manual reset delay set to %lu\n",
+        ID2CH(vch->id), vch->hw_rst_delay);
+    }
+    else
+    {
+        dev_info(&dev->pdev->dev, "vch%i manual reset delay NOT set, invalid value [%lu]\n",
+                ID2CH(vch->id), *delay);
+    }
+    return 0;
+}
+
 static long custom_ioctl(struct file *file, void *priv,
                          bool valid_prio, unsigned int cmd, void *arg)
 {
@@ -737,11 +756,16 @@ static long custom_ioctl(struct file *file, void *priv,
             dev_info(&dev->pdev->dev, "vch%i manual reset TW6869_HW_RESET_IOCTL\n",
                 ID2CH(vch->id));
             if (vch->sig && vch->sequence)
-                mod_delayed_work(system_wq, &vch->hw_rst, HZ/5);
+                mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
+            break;
+        case TW6869_HW_RESET_SET_DELAY_IOCTL:
+            dev_info(&dev->pdev->dev, "vch%i set manual reset delay\n",
+                ID2CH(vch->id));
+            tw6869_vch_set_delay(vch, arg);
             break;
         default:
-            dev_info(&dev->pdev->dev, "vch%i the only custom command is %u\n",
-                ID2CH(vch->id), TW6869_HW_RESET_IOCTL);
+            dev_info(&dev->pdev->dev, "vch%i not a valid command.\n",
+                ID2CH(vch->id));
             return -EINVAL;
     }
 
@@ -1025,6 +1049,8 @@ static int tw6869_vch_register(struct tw6869_vch *vch)
 	tw6869_fill_pix_format(vch, &vch->format);
 
 	mutex_init(&vch->mlock);
+	/* Default the delay to 200ms.*/
+	vch->hw_rst_delay = TW6869_HW_RESET_SET_DELAY_DEFAULT;
 	INIT_DELAYED_WORK(&vch->hw_rst, tw_delayed_dma_rst);
 
 	/* Initialize the vb2 queue */
