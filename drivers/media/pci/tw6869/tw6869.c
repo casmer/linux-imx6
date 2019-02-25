@@ -99,6 +99,7 @@ struct tw6869_vch {
 	struct list_head buf_list;
 	struct delayed_work hw_rst;
 	unsigned long hw_rst_delay;
+	spinlock_t hw_rst_lock;
 	spinlock_t lock;
 
 	struct v4l2_ctrl_handler hdl;
@@ -167,6 +168,7 @@ struct tw6869_dev {
 
 	struct snd_card *snd_card;
 	struct tw6869_ach ach[TW_CH_MAX];
+	int hw_rst_scheduled;
 };
 
 /**********************************************************************/
@@ -245,6 +247,7 @@ static inline void tw_id_off(struct tw6869_dev *dev, unsigned int id)
 		tw_write(dev, R32_DMA_CMD, 0);
 }
 
+
 static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 				unsigned int id,
 				unsigned int cmd)
@@ -260,23 +263,48 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 		dev_info(&dev->pdev->dev, "DMA %u OFF\n", id);
 		break;
 	case TW_DMA_RST:
-		if (tw_id_is_on(dev, id)) {
-			tw_id_off(dev, id);
-			if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
-				dev_err(&dev->pdev->dev, "DMA %u forced OFF\n", id);
-				break;
-			}
-			tw_id_on(dev, id);
-			dev_info(&dev->pdev->dev, "DMA %u RST\n", id);
-		} else {
-			dev_info(&dev->pdev->dev, "DMA %u spurious RST\n", id);
-		}
+
+	    if (tw_id_is_on(dev, id)) {
+	        dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored)\n", id);
+	    }
+//      if (tw_id_is_on(dev, id)) {
+        tw_id_off(dev, id);
+        if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
+            dev_err(&dev->pdev->dev, "DMA %u forced OFF\n", id);
+            break;
+        }
+        tw_id_on(dev, id);
+        dev_info(&dev->pdev->dev, "DMA %u RST\n", id);
+//		} else {
+//			dev_info(&dev->pdev->dev, "DMA %u spurious RST\n", id);
+//		}
 		break;
 	default:
 		dev_err(&dev->pdev->dev, "DMA %u unknown cmd %u\n", id, cmd);
 	}
 }
-
+static void cancel_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
+{
+    spin_lock(&vch->hw_rst_lock);
+    cancel_delayed_work_sync(&vch->hw_rst);
+    dev->hw_rst_scheduled = 0;
+    spin_unlock(&vch->hw_rst_lock);
+}
+static void schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
+{
+    spin_lock(&vch->hw_rst_lock);
+    if (dev->hw_rst_scheduled)
+    {
+        dev_info(&dev->pdev->dev, "vch%u hw_rst ignored, already scheduled.\n", vch->id);
+    }
+    else
+    {
+        dev->hw_rst_scheduled = 1;
+        dev_info(&dev->pdev->dev, "vch%u hw_rst\n", vch->id);
+        mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
+    }
+    spin_unlock(&vch->hw_rst_lock);
+}
 static unsigned int tw6869_virq(struct tw6869_dev *dev,
 				unsigned int id,
 				unsigned int pb,
@@ -299,9 +327,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 		vch->sig = sig;
 		if (sig && vch->sequence)
 		{
-		    dev_info(&dev->pdev->dev, "vch%u hw_rst\n",
-		                ID2CH(id));
-			mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
+		    schedule_hw_reset(vch, dev);
 		}
 	}
 
@@ -626,7 +652,7 @@ static int stop_streaming(struct vb2_queue *vq)
 		list_del(&buf->list);
 	}
 
-	cancel_delayed_work_sync(&vch->hw_rst);
+	cancel_hw_reset(vch, dev);
 	spin_unlock_irqrestore(&vch->lock, flags);
 
 	return 0;
@@ -725,8 +751,9 @@ static int tw6869_enum_fmt_vid_cap(struct file *file, void *priv,
 
 static int tw6869_vch_set_delay(struct tw6869_vch *vch, unsigned long *delay)
 {
-    struct tw6869_dev *dev = vch->dev;
 
+    struct tw6869_dev *dev = vch->dev;
+    spin_lock(&dev->rlock);
     if (*delay>0)
     {
     vch->hw_rst_delay = *delay;
@@ -738,6 +765,7 @@ static int tw6869_vch_set_delay(struct tw6869_vch *vch, unsigned long *delay)
         dev_info(&dev->pdev->dev, "vch%i manual reset delay NOT set, invalid value [%lu]\n",
                 ID2CH(vch->id), *delay);
     }
+    spin_unlock(&dev->rlock);
     return 0;
 }
 
@@ -755,8 +783,8 @@ static long custom_ioctl(struct file *file, void *priv,
 
             dev_info(&dev->pdev->dev, "vch%i manual reset TW6869_HW_RESET_IOCTL\n",
                 ID2CH(vch->id));
-            if (vch->sig && vch->sequence)
-                mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
+            if (vch->sig)
+                schedule_hw_reset(vch, dev);
             break;
         case TW6869_HW_RESET_SET_DELAY_IOCTL:
             dev_info(&dev->pdev->dev, "vch%i set manual reset delay\n",
@@ -1015,6 +1043,7 @@ static void tw_delayed_dma_rst(struct work_struct *work)
 
 	dev_info(&dev->pdev->dev, "vch%i deferred reset\n", vch->id);
 	spin_lock_irqsave(&dev->rlock, flags);
+	dev->hw_rst_scheduled = 0;
 	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_RST);
 	spin_unlock_irqrestore(&dev->rlock, flags);
 }
@@ -1049,6 +1078,7 @@ static int tw6869_vch_register(struct tw6869_vch *vch)
 	tw6869_fill_pix_format(vch, &vch->format);
 
 	mutex_init(&vch->mlock);
+	spin_lock_init(&vch->hw_rst_lock);
 	/* Default the delay to 200ms.*/
 	vch->hw_rst_delay = TW6869_HW_RESET_SET_DELAY_DEFAULT;
 	INIT_DELAYED_WORK(&vch->hw_rst, tw_delayed_dma_rst);
