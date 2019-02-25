@@ -283,6 +283,7 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 		dev_err(&dev->pdev->dev, "DMA %u unknown cmd %u\n", id, cmd);
 	}
 }
+
 static void cancel_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
 {
     spin_lock(&vch->hw_rst_lock);
@@ -290,6 +291,7 @@ static void cancel_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
     dev->hw_rst_scheduled = 0;
     spin_unlock(&vch->hw_rst_lock);
 }
+
 static void schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
 {
     spin_lock(&vch->hw_rst_lock);
