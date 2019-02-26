@@ -302,8 +302,9 @@ static void schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
     else
     {
         dev->hw_rst_scheduled = 1;
-        dev_info(&dev->pdev->dev, "vch%u hw_rst\n", vch->id);
         mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
+        dev_info(&dev->pdev->dev, "vch%u hw_rst\n", vch->id);
+
     }
     spin_unlock(&vch->hw_rst_lock);
 }
