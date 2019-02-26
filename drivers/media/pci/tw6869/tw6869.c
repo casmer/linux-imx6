@@ -1082,8 +1082,12 @@ static int tw6869_vch_register(struct tw6869_vch *vch)
 
 	mutex_init(&vch->mlock);
 	spin_lock_init(&vch->hw_rst_lock);
-	/* Default the delay to 200ms.*/
+	/* Set default reset delay.*/
 	vch->hw_rst_delay = TW6869_HW_RESET_SET_DELAY_DEFAULT;
+	
+	dev_info(&dev->pdev->dev, "vch%i manual reset delay set to %lu\n",
+    ID2CH(vch->id), vch->hw_rst_delay);
+        
 	INIT_DELAYED_WORK(&vch->hw_rst, tw_delayed_dma_rst);
 
 	/* Initialize the vb2 queue */
