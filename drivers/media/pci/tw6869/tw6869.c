@@ -1045,10 +1045,12 @@ static void tw_delayed_dma_rst(struct work_struct *work)
 	unsigned long flags;
 
 	dev_info(&dev->pdev->dev, "vch%i deferred reset\n", vch->id);
+	spin_lock(&vch->hw_rst_lock);
 	spin_lock_irqsave(&dev->rlock, flags);
 	dev->hw_rst_scheduled = 0;
 	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_RST);
 	spin_unlock_irqrestore(&dev->rlock, flags);
+	spin_unlock(&vch->hw_rst_lock);
 }
 
 static int tw6869_vch_register(struct tw6869_vch *vch)
