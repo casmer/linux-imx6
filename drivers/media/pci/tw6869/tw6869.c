@@ -262,19 +262,21 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 		tw_id_off(dev, id);
 		dev_info(&dev->pdev->dev, "DMA %u OFF\n", id);
 		break;
-	case TW_DMA_RST:
+	case TW_DMA_RST1:
+	case TW_DMA_RST2:
+	case TW_DMA_RST3:
 
 	    if (tw_id_is_on(dev, id)) {
-	        dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored)\n", id);
+	        dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored) [CMD %u]\n", id, cmd-2);
 	    }
 //      if (tw_id_is_on(dev, id)) {
         tw_id_off(dev, id);
         if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
-            dev_err(&dev->pdev->dev, "DMA %u forced OFF\n", id);
+            dev_err(&dev->pdev->dev, "DMA %u forced OFF [CMD %u]\n", id, cmd-2);
             break;
         }
         tw_id_on(dev, id);
-        dev_info(&dev->pdev->dev, "DMA %u RST\n", id);
+        dev_info(&dev->pdev->dev, "DMA %u RST [CMD %u]\n", id, cmd-2);
 //		} else {
 //			dev_info(&dev->pdev->dev, "DMA %u spurious RST\n", id);
 //		}
@@ -319,6 +321,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	struct tw6869_vch *vch = &dev->vch[ID2CH(id)];
 	struct tw6869_buf *done = NULL;
 	struct tw6869_buf *next = NULL;
+	unsigned long flags;
 
 	spin_lock(&vch->lock);
 	if (!vb2_is_streaming(&vch->queue) || !vch->p_buf || !vch->b_buf) {
@@ -330,16 +333,12 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 		dev_info(&dev->pdev->dev, "vch%u signal %s\n",
 			ID2CH(id), sig ? "detected" : "lost");
 		vch->sig = sig;
-		if (sig && vch->sequence)
-		{
-		    schedule_hw_reset(vch, dev);
-		}
 	}
 
 	if (err || (vch->pb != pb)) {
 		vch->pb = 0;
 		spin_unlock(&vch->lock);
-		return TW_DMA_RST;
+		return TW_DMA_RST2;
 	}
 
 	if (!list_empty(&vch->buf_list)) {
@@ -385,7 +384,7 @@ static unsigned int tw6869_airq(struct tw6869_dev *dev,
 	if (ach->pb != pb) {
 		ach->pb = 0;
 		spin_unlock(&ach->lock);
-		return TW_DMA_RST;
+		return TW_DMA_RST1;
 	}
 
 	if (!list_empty(&ach->buf_list)) {
@@ -1048,7 +1047,7 @@ static void tw_delayed_dma_rst(struct work_struct *work)
 
 	dev_info(&dev->pdev->dev, "vch%i deferred reset\n", vch->id);
 	spin_lock_irqsave(&dev->rlock, flags);
-	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_RST);
+	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_RST3);
 	spin_unlock_irqrestore(&dev->rlock, flags);
 	spin_lock_irqsave(&vch->hw_rst_lock, flags);
 	dev->hw_rst_scheduled = 0;

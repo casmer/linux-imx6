@@ -54,7 +54,9 @@
 
 #define TW_DMA_ON         1
 #define TW_DMA_OFF        2
-#define TW_DMA_RST        3
+#define TW_DMA_RST1        3
+#define TW_DMA_RST2        4
+#define TW_DMA_RST3        5
 
 #define TW_STD_NTSC_M     0
 #define TW_STD_PAL        1
