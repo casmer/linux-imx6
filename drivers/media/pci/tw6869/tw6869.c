@@ -106,7 +106,7 @@ struct tw6869_vch {
 	struct v4l2_pix_format format;
 	v4l2_std_id std;
 	unsigned int input;
-
+	unsigned int is_streaming;
 	unsigned int sequence;
 	unsigned int dcount;
 	unsigned int fps;
@@ -252,6 +252,7 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 				unsigned int id,
 				unsigned int cmd)
 {
+    struct tw6869_vch *vch = &dev->vch[ID2CH(id)];
 	switch (cmd) {
 	case TW_DMA_ON:
 		dev->id_err[ID2ID(id)] = 0;
@@ -265,18 +266,32 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 	case TW_DMA_RST1:
 	case TW_DMA_RST2:
 	case TW_DMA_RST3:
+	case TW_DMA_RST4:
 
-	    if (tw_id_is_on(dev, id)) {
-	        dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored) [CMD %u]\n", id, cmd-2);
+	    if (!tw_id_is_on(dev, id)) {
+	        dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored) [RSRC %u]\n", id, cmd-2);
 	    }
 //      if (tw_id_is_on(dev, id)) {
         tw_id_off(dev, id);
         if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
-            dev_err(&dev->pdev->dev, "DMA %u forced OFF [CMD %u]\n", id, cmd-2);
+            dev_err(&dev->pdev->dev, "DMA %u forced OFF [RSRC %u]\n", id, cmd-2);
             break;
         }
-        tw_id_on(dev, id);
-        dev_info(&dev->pdev->dev, "DMA %u RST [CMD %u]\n", id, cmd-2);
+        if ((BIT(id) & TW_AID))
+        {
+            tw_id_on(dev, id);
+        } else {
+            if (vch->is_streaming)
+            {
+                tw_id_on(dev, id);
+            } else
+            {
+                dev_info(&dev->pdev->dev, "DMA %u RST when streaming is off, not calling tw_id_on [RSRC %u]\n", id, cmd-2);
+                return;
+            }
+
+        }
+        dev_info(&dev->pdev->dev, "DMA %u RST [RSRC %u]\n", id, cmd-2);
 //		} else {
 //			dev_info(&dev->pdev->dev, "DMA %u spurious RST\n", id);
 //		}
@@ -321,7 +336,6 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	struct tw6869_vch *vch = &dev->vch[ID2CH(id)];
 	struct tw6869_buf *done = NULL;
 	struct tw6869_buf *next = NULL;
-	unsigned long flags;
 
 	spin_lock(&vch->lock);
 	if (!vb2_is_streaming(&vch->queue) || !vch->p_buf || !vch->b_buf) {
@@ -361,8 +375,18 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 		done->vb.v4l2_buf.sequence = vch->sequence++;
 		vb2_buffer_done(&done->vb, VB2_BUF_STATE_DONE);
 	} else {
-		dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u\n",
-			ID2CH(id), vch->sequence, ++vch->dcount);
+	    vch->dcount++;
+	    if (vch->dcount % 100 == 1)
+	    {
+            dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u\n",
+                ID2CH(id), vch->sequence, vch->dcount);
+	    }
+	    if (vch->dcount > 1000)
+	    {
+            dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u triggered reset\n",
+                ID2CH(id), vch->sequence);
+            return TW_DMA_RST4;
+	    }
 	}
 	return 0;
 }
@@ -621,6 +645,7 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 
 	spin_lock_irqsave(&dev->rlock, flags);
 	tw6869_vch_hw_cfg(vch);
+	vch->is_streaming =1;
 	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_ON);
 	spin_unlock_irqrestore(&dev->rlock, flags);
 
@@ -635,10 +660,12 @@ static int stop_streaming(struct vb2_queue *vq)
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->rlock, flags);
+	vch->is_streaming =0;
 	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_OFF);
 	spin_unlock_irqrestore(&dev->rlock, flags);
 
 	spin_lock_irqsave(&vch->lock, flags);
+
 	if (vch->p_buf) {
 		buf = vch->p_buf;
 		vch->p_buf = NULL;
@@ -1085,6 +1112,8 @@ static int tw6869_vch_register(struct tw6869_vch *vch)
 
 	mutex_init(&vch->mlock);
 	spin_lock_init(&vch->hw_rst_lock);
+	/* set is string to 0, safe because nothing can use this until after this process is complete.*/
+	vch->is_streaming =0;
 	/* Set default reset delay.*/
 	vch->hw_rst_delay = TW6869_HW_RESET_SET_DELAY_DEFAULT;
 	
