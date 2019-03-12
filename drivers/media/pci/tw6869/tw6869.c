@@ -279,10 +279,12 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
         }
         if ((BIT(id) & TW_AID))
         {
+            dev->id_err[ID2ID(id)] = 0;
             tw_id_on(dev, id);
         } else {
             if (vch->is_streaming)
             {
+                dev->id_err[ID2ID(id)] = 0;
                 tw_id_on(dev, id);
             } else
             {
