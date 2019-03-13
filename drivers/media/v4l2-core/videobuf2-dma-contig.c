@@ -807,6 +807,36 @@ static void *vb2_dc_attach_dmabuf(void *alloc_ctx, struct dma_buf *dbuf,
 /*       DMA CONTIG exported functions       */
 /*********************************************/
 
+static void *vb2_dc_get_userptr_fsl(void *alloc_ctx, unsigned long vaddr,
+        unsigned long size, int write)
+{
+   struct vb2_dc_conf *conf = alloc_ctx;
+   struct vb2_dc_buf *buf;
+
+   if (!size) {
+       pr_debug("size is zero\n");
+       return ERR_PTR(-EINVAL);
+   }
+
+   buf = kzalloc(sizeof *buf, GFP_KERNEL);
+   if (!buf)
+       return ERR_PTR(-ENOMEM);
+
+   buf->dev = conf->dev;
+   buf->size = size;
+
+   return buf;
+}
+
+static void vb2_dc_put_userptr_fsl(void *buf_priv)
+{
+   struct vb2_dc_buf *buf = buf_priv;
+
+   kfree(buf);
+}
+
+
+
 const struct vb2_mem_ops vb2_dma_contig_memops = {
 	.alloc		= vb2_dc_alloc,
 	.put		= vb2_dc_put,
@@ -814,8 +844,10 @@ const struct vb2_mem_ops vb2_dma_contig_memops = {
 	.cookie		= vb2_dc_cookie,
 	.vaddr		= vb2_dc_vaddr,
 	.mmap		= vb2_dc_mmap,
-	.get_userptr	= vb2_dc_get_userptr,
-	.put_userptr	= vb2_dc_put_userptr,
+//	.get_userptr	= vb2_dc_get_userptr,
+//	.put_userptr	= vb2_dc_put_userptr,
+	.get_userptr    = vb2_dc_get_userptr_fsl,
+	.put_userptr    = vb2_dc_put_userptr_fsl,
 	.prepare	= vb2_dc_prepare,
 	.finish		= vb2_dc_finish,
 	.map_dmabuf	= vb2_dc_map_dmabuf,
