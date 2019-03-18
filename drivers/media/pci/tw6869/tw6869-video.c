@@ -125,8 +125,8 @@ static void tw6869_vch_dma_frame_isr(struct tw6869_dma *dma)
 		done->vb.v4l2_buf.field = V4L2_FIELD_INTERLACED;
 		vb2_buffer_done(&done->vb, VB2_BUF_STATE_DONE);
 	} else {
-		tw_err(dma->dev, "vch%u NOBUF seq=%u dcount=%u\n",
-			ID2CH(dma->id), vch->sequence, ++vch->dcount);
+		//tw_err(dma->dev, "vch%u NOBUF seq=%u dcount=%u\n",
+		//	ID2CH(dma->id), vch->sequence, ++vch->dcount);
 	}
 
 	dma->fld = 0x0;
@@ -863,6 +863,39 @@ static const struct v4l2_ctrl_ops tw6869_ctrl_ops = {
 	.s_ctrl = tw6869_s_ctrl,
 };
 
+
+static long custom_ioctl(struct file *file, void *priv,
+                         bool valid_prio, unsigned int cmd, void *arg)
+{
+
+//    struct tw6869_vch *vch = video_drvdata(file);
+//    struct tw6869_dev *dev = vch->dev;
+//    dev_info(&dev->pdev->dev, "vch%i Custom IOCTL %u\n",
+//        ID2CH(vch->id), cmd);
+//    switch (cmd)
+//    {
+//        case TW6869_HW_RESET_IOCTL:
+//
+//            dev_info(&dev->pdev->dev, "vch%i manual reset TW6869_HW_RESET_IOCTL\n",
+//                ID2CH(vch->id));
+//            if (vch->sig)
+//                schedule_hw_reset(vch, dev);
+//            break;
+//        case TW6869_HW_RESET_SET_DELAY_IOCTL:
+//            dev_info(&dev->pdev->dev, "vch%i set manual reset delay\n",
+//                ID2CH(vch->id));
+//            tw6869_vch_set_delay(vch, arg);
+//            break;
+//        default:
+//            dev_info(&dev->pdev->dev, "vch%i not a valid command.\n",
+//                ID2CH(vch->id));
+//            return -EINVAL;
+//    }
+
+    return 0;
+}
+
+
 static const struct v4l2_ioctl_ops tw6869_ioctl_ops = {
 	.vidioc_querycap = tw6869_querycap,
 	.vidioc_try_fmt_vid_cap = tw6869_try_fmt_vid_cap,
@@ -904,6 +937,7 @@ static const struct v4l2_ioctl_ops tw6869_ioctl_ops = {
 	.vidioc_log_status = v4l2_ctrl_log_status,
 	.vidioc_subscribe_event = v4l2_ctrl_subscribe_event,
 	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
+	.vidioc_default = custom_ioctl,
 };
 
 static const struct v4l2_file_operations tw6869_fops = {

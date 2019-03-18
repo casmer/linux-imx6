@@ -176,43 +176,45 @@ static irqreturn_t tw6869_irq(int irq, void *dev_id)
 
 static void tw6869_reset(struct tw6869_dev *dev)
 {
-	/* Software Reset */
-	tw_write(dev, R32_SYS_SOFT_RST, 0x01);
-	tw_write(dev, R32_SYS_SOFT_RST, 0x0F);
+    /* Software Reset */
+    tw_write(dev, R32_SYS_SOFT_RST, 0x01);
+    tw_write(dev, R32_SYS_SOFT_RST, 0x0F);
 
-	/* Reset Internal audio and video decoders */
-	tw_write(dev, R8_AVSRST(0x0), 0x1F);
-	tw_write(dev, R8_AVSRST(0x4), 0x1F);
+    /* Reset Internal audio and video decoders */
+    tw_write(dev, R8_AVSRST(0x0), 0x1F);
+    tw_write(dev, R8_AVSRST(0x4), 0x1F);
 
-	/* Reset and disable all DMA channels */
-	tw_write(dev, R32_DMA_CMD, 0x0);
-	tw_write(dev, R32_DMA_CHANNEL_ENABLE, 0x0);
+    /* Reset and disable all DMA channels */
+    tw_write(dev, R32_DMA_CMD, 0x0);
+    tw_write(dev, R32_DMA_CHANNEL_ENABLE, 0x0);
 
-	/* FIFO overflow and DMA pointer check */
-	tw_write(dev, R32_DMA_CONFIG, 0xFFFFFF0C);
+    /* FIFO overflow and DMA pointer check */
+    //tw_write(dev, R32_DMA_CONFIG, 0xFFFFFF0C);
+    tw_write(dev, R32_DMA_CONFIG, 0x00000004);
 
-	/* Minimum time span for DMA interrupting host (default: 0x00098968) */
-	tw_write(dev, R32_DMA_TIMER_INTERVAL, 0x00098968);
+    /* Minimum time span for DMA interrupting host (default: 0x00098968) */
+    tw_write(dev, R32_DMA_TIMER_INTERVAL, 0x00098968);
 
-	/* DMA timeout (default: 0x140C8584) */
-	tw_write(dev, R32_DMA_CHANNEL_TIMEOUT, 0x14FFFFFF);
+    /* DMA timeout (default: 0x140C8584) */
+    //tw_write(dev, R32_DMA_CHANNEL_TIMEOUT, 0x14FFFFFF);
+    tw_write(dev, R32_DMA_CHANNEL_TIMEOUT, 0x140C8584);
 
-	/* Frame mode DMA */
-	tw_write(dev, R32_PHASE_REF, 0xAAAA144D);
+    /* Frame mode DMA */
+    tw_write(dev, R32_PHASE_REF, 0xAAAA144D);
 
-	/* SK-TW6869: special mode */
-	tw_write(dev, R8_VERTICAL_CONTROL1(0x0), 0xFF);
-	tw_write(dev, R8_VERTICAL_CONTROL1(0x4), 0xFF);
-	tw_write(dev, R8_MISC_CONTROL1(0x0), 0x56);
-	tw_write(dev, R8_MISC_CONTROL1(0x4), 0x56);
+//  /* SK-TW6869: special mode */
+//  tw_write(dev, R8_VERTICAL_CONTROL1(0x0), 0xFF);
+//  tw_write(dev, R8_VERTICAL_CONTROL1(0x4), 0xFF);
+//  tw_write(dev, R8_MISC_CONTROL1(0x0), 0x56);
+//  tw_write(dev, R8_MISC_CONTROL1(0x4), 0x56);
 
-	/* Show blue background if no signal */
-	tw_write(dev, R8_MISC_CONTROL2(0x0), 0xE7);
-	tw_write(dev, R8_MISC_CONTROL2(0x4), 0xE7);
+    /* Show blue background if no signal */
+    tw_write(dev, R8_MISC_CONTROL2(0x0), 0xE7);
+    tw_write(dev, R8_MISC_CONTROL2(0x4), 0xE7);
 
-	/* Audio DMA 4096 bytes, sampling frequency reference 48 kHz */
-	tw_write(dev, R32_AUDIO_CONTROL1, 0x80000001 | (0x0A2C << 5));
-	tw_write(dev, R32_AUDIO_CONTROL2, 0x0A2C2AAA);
+    /* Audio DMA 4096 bytes, sampling frequency reference 48 kHz */
+    tw_write(dev, R32_AUDIO_CONTROL1, 0x80000001 | (0x0A2C << 5));
+    tw_write(dev, R32_AUDIO_CONTROL2, 0x0A2C2AAA);
 }
 
 static int tw6869_probe(struct pci_dev *pdev, const struct pci_device_id *pid)

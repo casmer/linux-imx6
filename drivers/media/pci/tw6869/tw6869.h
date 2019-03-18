@@ -46,7 +46,7 @@
 #include <sound/control.h>
 
 #define FSL_G_CHIP_IDENT
-#define FSL_QUERYBUF
+//#define FSL_QUERYBUF
 #define TW_DEFAULT_V4L2_STD        V4L2_STD_NTSC /* V4L2_STD_PAL */
 
 #define TW_DMA_ERR_MAX             30
