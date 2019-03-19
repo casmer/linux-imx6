@@ -124,6 +124,15 @@
 
 #define TW6869_HW_RESET_IOCTL BASE_VIDIOC_PRIVATE + 1
 #define TW6869_HW_RESET_SET_DELAY_IOCTL BASE_VIDIOC_PRIVATE + 2
+#define TW6869_GET_FRAME_DATA BASE_VIDIOC_PRIVATE + 3
+
+struct tw6869_frame_data {
+    unsigned int dma_number;
+    unsigned int dropped_frame_count;
+    unsigned int sequence;
+};
+
+
 #define TW6869_HW_RESET_SET_DELAY_DEFAULT (HZ/5)
 
 #endif /* __TW6869_H */
