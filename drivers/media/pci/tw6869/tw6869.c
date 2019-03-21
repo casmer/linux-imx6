@@ -377,13 +377,14 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 		done->vb.v4l2_buf.sequence = vch->sequence++;
 		vb2_buffer_done(&done->vb, VB2_BUF_STATE_DONE);
 	} else {
+	    spin_lock(&vch->lock);
 	    vch->dcount++;
 	    if (vch->dcount % 100 == 1)
 	    {
             dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u\n",
                 ID2CH(id), vch->sequence, vch->dcount);
-            spin_lock(&vch->lock);
 	    }
+	    spin_unlock(&vch->lock);
 	}
 	return 0;
 }
@@ -797,21 +798,42 @@ static int tw6869_vch_set_delay(struct tw6869_vch *vch, unsigned long *delay)
     return 0;
 }
 
+static int tw6869_vch_set_dcount(struct tw6869_vch *vch, unsigned long *dcount)
+{
+    struct tw6869_dev *dev = vch->dev;
+
+    if (*dcount>0)
+    {
+        spin_lock(&vch->lock);
+        vch->dcount = *dcount;
+        spin_unlock(&vch->lock);
+        dev_info(&dev->pdev->dev, "vch%i dcount set to %lu\n",
+            ID2CH(vch->id), *dcount);
+    }
+    else
+    {
+        dev_info(&dev->pdev->dev, "vch%i dcount NOT set, invalid value [%lu]\n",
+                ID2CH(vch->id), *dcount);
+    }
+
+    return 0;
+}
+
 static int tw6869_vch_get_frame_data(struct tw6869_vch *vch, struct tw6869_frame_data *get_dcount)
 {
     struct tw6869_dev *dev = vch->dev;
     struct tw6869_frame_data dcount_data;
     unsigned long result;
-    dev_info(&dev->pdev->dev, "vch%i in dcount set\n", ID2CH(vch->id));
+    dev_dbg(&dev->pdev->dev, "vch%i in dcount get\n", ID2CH(vch->id));
     spin_lock(&vch->lock);
-
     dcount_data.dropped_frame_count = vch->dcount;
     dcount_data.sequence = vch->sequence;
     dcount_data.dma_number = ID2CH(vch->id);
+    spin_unlock(&vch->lock);
 
     result = copy_to_user(get_dcount, &dcount_data, sizeof(struct tw6869_frame_data));
-    dev_info(&dev->pdev->dev, "vch%i copy to user result [%lu]\n", ID2CH(vch->id), result);
-    spin_unlock(&vch->lock);
+    dev_dbg(&dev->pdev->dev, "vch%i copy to user result [%lu]\n", ID2CH(vch->id), result);
+
     return 0;
 }
 
@@ -822,29 +844,31 @@ static long custom_ioctl(struct file *file, void *priv,
 
     struct tw6869_vch *vch = video_drvdata(file);
     struct tw6869_dev *dev = vch->dev;
-    dev_info(&dev->pdev->dev, "vch%i Custom IOCTL %u\n",
-        ID2CH(vch->id), cmd);
+
     switch (cmd)
     {
         case TW6869_HW_RESET_IOCTL:
 
-            dev_info(&dev->pdev->dev, "vch%i manual reset TW6869_HW_RESET_IOCTL\n",
+            dev_dbg(&dev->pdev->dev, "vch%i manual reset TW6869_HW_RESET_IOCTL\n",
                 ID2CH(vch->id));
             if (vch->sig)
                 schedule_hw_reset(vch, dev);
             break;
         case TW6869_HW_RESET_SET_DELAY_IOCTL:
-            dev_info(&dev->pdev->dev, "vch%i set manual reset delay\n",
+            dev_dbg(&dev->pdev->dev, "vch%i set manual reset delay\n",
                 ID2CH(vch->id));
             tw6869_vch_set_delay(vch, arg);
             break;
         case TW6869_GET_FRAME_DATA:
-            dev_info(&dev->pdev->dev, "vch%i set dcount TW6869_GET_FRAME_DATA\n",
+            dev_dbg(&dev->pdev->dev, "vch%i set dcount TW6869_GET_FRAME_DATA\n",
                 ID2CH(vch->id));
             tw6869_vch_get_frame_data(vch, arg);
             break;
+        case TW6869_SET_DCOUNT:
+            tw6869_vch_set_dcount(vch, arg);
+            break;
         default:
-            dev_info(&dev->pdev->dev, "vch%i not a valid command.\n",
+            dev_err(&dev->pdev->dev, "vch%i not a valid command.\n",
                 ID2CH(vch->id));
             return -EINVAL;
     }
