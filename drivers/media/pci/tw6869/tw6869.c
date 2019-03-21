@@ -99,6 +99,7 @@ struct tw6869_vch {
 	struct list_head buf_list;
 	struct delayed_work hw_rst;
 	unsigned long hw_rst_delay;
+	int hw_rst_scheduled;
 	spinlock_t hw_rst_lock;
 	spinlock_t lock;
 
@@ -168,7 +169,7 @@ struct tw6869_dev {
 
 	struct snd_card *snd_card;
 	struct tw6869_ach ach[TW_CH_MAX];
-	int hw_rst_scheduled;
+
 };
 
 /**********************************************************************/
@@ -308,7 +309,7 @@ static void cancel_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
     unsigned long flags;
     spin_lock_irqsave(&vch->hw_rst_lock, flags);
     cancel_delayed_work_sync(&vch->hw_rst);
-    dev->hw_rst_scheduled = 0;
+    vch->hw_rst_scheduled = 0;
     spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
 }
 
@@ -316,13 +317,13 @@ static void schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
 {
     unsigned long flags;
     spin_lock_irqsave(&vch->hw_rst_lock, flags);
-    if (dev->hw_rst_scheduled)
+    if (vch->hw_rst_scheduled)
     {
         dev_info(&dev->pdev->dev, "vch%u hw_rst ignored, already scheduled.\n", vch->id);
     }
     else
     {
-        dev->hw_rst_scheduled = 1;
+        vch->hw_rst_scheduled = 1;
         mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
         dev_info(&dev->pdev->dev, "vch%u hw_rst\n", vch->id);
 
@@ -335,13 +336,14 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 				unsigned int sig,
 				unsigned int err)
 {
+    unsigned long flags;
 	struct tw6869_vch *vch = &dev->vch[ID2CH(id)];
 	struct tw6869_buf *done = NULL;
 	struct tw6869_buf *next = NULL;
 
-	spin_lock(&vch->lock);
+	spin_lock_irqsave(&vch->lock, flags);
 	if (!vb2_is_streaming(&vch->queue) || !vch->p_buf || !vch->b_buf) {
-		spin_unlock(&vch->lock);
+		spin_unlock_irqrestore(&vch->lock, flags);
 		return TW_DMA_OFF;
 	}
 
@@ -353,8 +355,9 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 
 	if (err || (vch->pb != pb)) {
 		vch->pb = 0;
-		spin_unlock(&vch->lock);
-		return TW_DMA_RST2;
+		spin_unlock_irqrestore(&vch->lock, flags);
+
+		return sig ? TW_DMA_RST2 : 0;
 	}
 
 	if (!list_empty(&vch->buf_list)) {
@@ -369,7 +372,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 		}
 	}
 	vch->pb = !pb;
-	spin_unlock(&vch->lock);
+	spin_unlock_irqrestore(&vch->lock, flags);
 
 	if (done && next) {
 		tw_write(dev, pb ? R32_DMA_B_ADDR(id) : R32_DMA_P_ADDR(id), next->dma);
@@ -377,14 +380,14 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 		done->vb.v4l2_buf.sequence = vch->sequence++;
 		vb2_buffer_done(&done->vb, VB2_BUF_STATE_DONE);
 	} else {
-	    spin_lock(&vch->lock);
+	    spin_lock_irqsave(&vch->lock, flags);
 	    vch->dcount++;
 	    if (vch->dcount % 100 == 1)
 	    {
             dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u\n",
                 ID2CH(id), vch->sequence, vch->dcount);
 	    }
-	    spin_unlock(&vch->lock);
+	    spin_unlock_irqrestore(&vch->lock, flags);
 	}
 	return 0;
 }
@@ -393,19 +396,20 @@ static unsigned int tw6869_airq(struct tw6869_dev *dev,
 				unsigned int id,
 				unsigned int pb)
 {
+    unsigned long flags;
 	struct tw6869_ach *ach = &dev->ach[ID2CH(id)];
 	struct tw6869_buf *done = NULL;
 	struct tw6869_buf *next = NULL;
 
-	spin_lock(&ach->lock);
+	spin_lock_irqsave(&ach->lock, flags);
 	if (!ach->ss || !ach->p_buf || !ach->b_buf) {
-		spin_unlock(&ach->lock);
+		spin_unlock_irqrestore(&ach->lock, flags);
 		return TW_DMA_OFF;
 	}
 
 	if (ach->pb != pb) {
 		ach->pb = 0;
-		spin_unlock(&ach->lock);
+		spin_unlock_irqrestore(&ach->lock, flags);
 		return TW_DMA_RST1;
 	}
 
@@ -421,7 +425,7 @@ static unsigned int tw6869_airq(struct tw6869_dev *dev,
 		}
 	}
 	ach->pb = !pb;
-	spin_unlock(&ach->lock);
+	spin_unlock_irqrestore(&ach->lock, flags);
 
 	if (done && next) {
 		tw_write(dev, pb ? R32_DMA_B_ADDR(id) : R32_DMA_P_ADDR(id), next->dma);
@@ -435,6 +439,7 @@ static unsigned int tw6869_airq(struct tw6869_dev *dev,
 
 static irqreturn_t tw6869_irq(int irq, void *dev_id)
 {
+    unsigned long flags;
 	struct tw6869_dev *dev = dev_id;
 	unsigned int int_sts, fifo_sts, pb_sts, dma_en, id;
 
@@ -455,9 +460,9 @@ static irqreturn_t tw6869_irq(int irq, void *dev_id)
 				tw6869_airq(dev, id, pb);
 
 			if (cmd) {
-				spin_lock(&dev->rlock);
+				spin_lock_irqsave(&dev->rlock, flags);
 				tw6869_id_dma_cmd(dev, id, cmd);
-				spin_unlock(&dev->rlock);
+				spin_unlock_irqrestore(&dev->rlock, flags);
 			} else {
 				dev->id_err[id] = 0;
 			}
@@ -800,13 +805,14 @@ static int tw6869_vch_set_delay(struct tw6869_vch *vch, unsigned long *delay)
 
 static int tw6869_vch_set_dcount(struct tw6869_vch *vch, unsigned long *dcount)
 {
+    unsigned long flags;
     struct tw6869_dev *dev = vch->dev;
 
     if (*dcount>0)
     {
-        spin_lock(&vch->lock);
+        spin_lock_irqsave(&vch->lock, flags);
         vch->dcount = *dcount;
-        spin_unlock(&vch->lock);
+        spin_unlock_irqrestore(&vch->lock, flags);
         dev_info(&dev->pdev->dev, "vch%i dcount set to %lu\n",
             ID2CH(vch->id), *dcount);
     }
@@ -821,15 +827,16 @@ static int tw6869_vch_set_dcount(struct tw6869_vch *vch, unsigned long *dcount)
 
 static int tw6869_vch_get_frame_data(struct tw6869_vch *vch, struct tw6869_frame_data *get_dcount)
 {
+    unsigned long flags;
     struct tw6869_dev *dev = vch->dev;
     struct tw6869_frame_data dcount_data;
     unsigned long result;
     dev_dbg(&dev->pdev->dev, "vch%i in dcount get\n", ID2CH(vch->id));
-    spin_lock(&vch->lock);
+    spin_lock_irqsave(&vch->lock, flags);
     dcount_data.dropped_frame_count = vch->dcount;
     dcount_data.sequence = vch->sequence;
     dcount_data.dma_number = ID2CH(vch->id);
-    spin_unlock(&vch->lock);
+    spin_unlock_irqrestore(&vch->lock, flags);
 
     result = copy_to_user(get_dcount, &dcount_data, sizeof(struct tw6869_frame_data));
     dev_dbg(&dev->pdev->dev, "vch%i copy to user result [%lu]\n", ID2CH(vch->id), result);
@@ -1122,7 +1129,7 @@ static void tw_delayed_dma_rst(struct work_struct *work)
 	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_RST3);
 	spin_unlock_irqrestore(&dev->rlock, flags);
 	spin_lock_irqsave(&vch->hw_rst_lock, flags);
-	dev->hw_rst_scheduled = 0;
+	vch->hw_rst_scheduled = 0;
 	spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
 }
 
