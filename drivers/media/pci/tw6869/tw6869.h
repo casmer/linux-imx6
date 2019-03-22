@@ -54,7 +54,7 @@
 
 #define TW_DMA_ON         1
 #define TW_DMA_OFF        2
-//Different rest id for each source of a reset.
+//Different ID for each source of a reset.
 #define TW_DMA_RST1       3
 #define TW_DMA_RST2       4
 #define TW_DMA_RST3       5
@@ -120,11 +120,14 @@
 /* 0x1D0, 0x2D0 */
 #define R8_AIGAIN_CTRL(id)         ((IS_CH03(id) ? 0x740 : 0xB40) + ID2SC(id) * 0x04)
 
-//#define TW6869_HW_RESET _IO('v', BASE_VIDIOC_PRIVATE + 3)
 
+/// @brief ioctl for manual hardware reset
 #define TW6869_HW_RESET_IOCTL BASE_VIDIOC_PRIVATE + 1
+/// @brief ioctl for setting hardware reset delay (expects arg to be delay in jiffies)
 #define TW6869_HW_RESET_SET_DELAY_IOCTL BASE_VIDIOC_PRIVATE + 2
+/// @brief ioctl to read frame data (expects are to be tw6869_frame_data)
 #define TW6869_GET_FRAME_DATA BASE_VIDIOC_PRIVATE + 3
+/// @brief ioctl to force dropped frame count to specified value (for testing)
 #define TW6869_SET_DCOUNT BASE_VIDIOC_PRIVATE + 4
 
 struct tw6869_frame_data {

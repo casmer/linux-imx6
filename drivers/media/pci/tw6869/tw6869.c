@@ -75,6 +75,10 @@ struct tw6869_buf {
  * @mlock: the main serialization lock
  * @queue: queue maintained by videobuf2 layer
  * @buf_list: list of buffer in use
+ * @hw_rst: delayed work for hardware reset call
+ * @hw_rst_delay: delay (in jiffies) to apply to hardware resets
+ * @hw_rst_scheduled: marker to show a reset is already scheduled, used to avoid double resets.
+ * @hw_rst_lock: spinlock for hardware reset activities.
  * @lock: spinlock controlling access to channel
  * @hdl: handler for control framework
  * @format: pixel format
@@ -268,36 +272,37 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 	case TW_DMA_RST2:
 	case TW_DMA_RST3:
 	case TW_DMA_RST4:
+	    {
+	        unsigned int source_id = cmd + 1 - TW_DMA_RST1;
 
-	    if (!tw_id_is_on(dev, id)) {
-	        dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored) [RSRC %u]\n", id, cmd-2);
-	    }
-//      if (tw_id_is_on(dev, id)) {
-        tw_id_off(dev, id);
-        if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
-            dev_err(&dev->pdev->dev, "DMA %u forced OFF [RSRC %u]\n", id, cmd-2);
-            break;
-        }
-        if ((BIT(id) & TW_AID))
-        {
-            dev->id_err[ID2ID(id)] = 0;
-            tw_id_on(dev, id);
-        } else {
-            if (vch->is_streaming)
-            {
-                dev->id_err[ID2ID(id)] = 0;
-                tw_id_on(dev, id);
-            } else
-            {
-                dev_info(&dev->pdev->dev, "DMA %u RST when streaming is off, not calling tw_id_on [RSRC %u]\n", id, cmd-2);
-                return;
+            if (!tw_id_is_on(dev, id)) {
+                dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored) [RSRC %u]\n", id, source_id);
+            }
+            tw_id_off(dev, id);
+            if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
+                dev_err(&dev->pdev->dev, "DMA %u forced OFF [RSRC %u]\n", id, source_id);
+                break;
             }
 
-        }
-        dev_info(&dev->pdev->dev, "DMA %u RST [RSRC %u]\n", id, cmd-2);
-//		} else {
-//			dev_info(&dev->pdev->dev, "DMA %u spurious RST\n", id);
-//		}
+            if ((BIT(id) & TW_AID))
+            {  //reset for audio channels
+                dev->id_err[ID2ID(id)] = 0;
+                tw_id_on(dev, id);
+            }
+            else
+            { //reset for video channels.
+                if (vch->is_streaming)
+                {
+                    dev->id_err[ID2ID(id)] = 0;
+                    tw_id_on(dev, id);
+                } else
+                {
+                    dev_info(&dev->pdev->dev, "DMA %u RST when streaming is off, not calling tw_id_on [RSRC %u]\n", id, source_id);
+                    return;
+                }
+            }
+            dev_info(&dev->pdev->dev, "DMA %u RST [RSRC %u]\n", id, source_id);
+	    }
 		break;
 	default:
 		dev_err(&dev->pdev->dev, "DMA %u unknown cmd %u\n", id, cmd);
