@@ -130,13 +130,25 @@
 /// @brief ioctl to force dropped frame count to specified value (for testing)
 #define TW6869_SET_DCOUNT BASE_VIDIOC_PRIVATE + 4
 
+/**
+ * @brief struct from tw6968.h, contains ioctl return results.
+ */
 struct tw6869_frame_data {
+    /// @brief dma number assigned to device (0-7)
     unsigned int dma_number;
+    /// @brief number of frames dropped since streaming was last started on device.
     unsigned int dropped_frame_count;
+    /// @brief last frame sequence number assigned by device during streaming.
     unsigned int sequence;
+    /// @brief streaming state (0 off, 1 on)
+    unsigned int is_streaming;
+    /// @brief count of spurious resets detected
+    unsigned int spurious_reset_count;
+    /// @brief count of resets detected
+    unsigned int reset_count;
 };
 
-
+/// @brief default delay for Hardware reset commands.
 #define TW6869_HW_RESET_SET_DELAY_DEFAULT (HZ/5)
 
 #endif /* __TW6869_H */

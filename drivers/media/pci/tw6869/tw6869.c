@@ -63,7 +63,7 @@ struct tw6869_buf {
 	struct list_head list;
 	dma_addr_t dma;
 };
-
+static int stop_streaming(struct vb2_queue *vq);
 /**
  * struct tw6869_vch - instance of one video channel
  * @dev: parent device
@@ -114,6 +114,8 @@ struct tw6869_vch {
 	unsigned int is_streaming;
 	unsigned int sequence;
 	unsigned int dcount;
+	unsigned int spurious_reset_count;
+	unsigned int reset_count;
 	unsigned int fps;
 };
 
@@ -274,9 +276,11 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 	case TW_DMA_RST4:
 	    {
 	        unsigned int source_id = cmd + 1 - TW_DMA_RST1;
-
+	        vch->reset_count++;
             if (!tw_id_is_on(dev, id)) {
-                dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored) [RSRC %u]\n", id, source_id);
+                vch->spurious_reset_count++;
+                dev_info(&dev->pdev->dev, "DMA %u spurious RST (ignored) [RSRC %u] [%u/%u]\n",
+                         id, source_id, vch->reset_count, vch->spurious_reset_count);
             }
             tw_id_off(dev, id);
             if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
@@ -311,29 +315,27 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 
 static void cancel_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
 {
-    unsigned long flags;
-    spin_lock_irqsave(&vch->hw_rst_lock, flags);
+    spin_lock(&vch->hw_rst_lock);
     cancel_delayed_work_sync(&vch->hw_rst);
     vch->hw_rst_scheduled = 0;
-    spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
+    spin_unlock(&vch->hw_rst_lock);
 }
 
 static void schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
 {
-    unsigned long flags;
-    spin_lock_irqsave(&vch->hw_rst_lock, flags);
-    if (vch->hw_rst_scheduled)
-    {
-        dev_info(&dev->pdev->dev, "vch%u hw_rst ignored, already scheduled.\n", vch->id);
-    }
-    else
-    {
-        vch->hw_rst_scheduled = 1;
-        mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
-        dev_info(&dev->pdev->dev, "vch%u hw_rst\n", vch->id);
+    spin_lock(&vch->hw_rst_lock);
+//    if (vch->hw_rst_scheduled)
+//    {
+//        dev_dbg(&dev->pdev->dev, "vch%u hw_rst already scheduled, canceling.\n", vch->id);
+//        cancel_delayed_work_sync(&vch->hw_rst);
+//    }
 
-    }
-    spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
+    vch->hw_rst_scheduled = 1;
+    mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
+    dev_info(&dev->pdev->dev, "scheduled vch%u hw_rst\n", vch->id);
+
+
+    spin_unlock(&vch->hw_rst_lock);
 }
 static unsigned int tw6869_virq(struct tw6869_dev *dev,
 				unsigned int id,
@@ -353,7 +355,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	}
 
 	if (vch->sig != sig) {
-		dev_info(&dev->pdev->dev, "vch%u signal %s\n",
+	    dev_info(&dev->pdev->dev, "vch%u signal %s\n",
 			ID2CH(id), sig ? "detected" : "lost");
 		vch->sig = sig;
 	}
@@ -361,8 +363,9 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	if (err || (vch->pb != pb)) {
 		vch->pb = 0;
 		spin_unlock_irqrestore(&vch->lock, flags);
+		schedule_hw_reset(vch, dev);
 
-		return sig ? TW_DMA_RST2 : 0;
+		return 0;
 	}
 
 	if (!list_empty(&vch->buf_list)) {
@@ -387,11 +390,17 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	} else {
 	    spin_lock_irqsave(&vch->lock, flags);
 	    vch->dcount++;
-	    if (vch->dcount % 100 == 1)
+
+	    if (vch->dcount>200)
 	    {
+	        stop_streaming(&vch->queue);
+            dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u, forcing a stop of streamming.\n",
+                ID2CH(id), vch->sequence, vch->dcount);
+	    } else if (vch->dcount % 100 == 0)
+        {
             dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u\n",
                 ID2CH(id), vch->sequence, vch->dcount);
-	    }
+        }
 	    spin_unlock_irqrestore(&vch->lock, flags);
 	}
 	return 0;
@@ -841,6 +850,9 @@ static int tw6869_vch_get_frame_data(struct tw6869_vch *vch, struct tw6869_frame
     dcount_data.dropped_frame_count = vch->dcount;
     dcount_data.sequence = vch->sequence;
     dcount_data.dma_number = ID2CH(vch->id);
+    dcount_data.is_streaming = vch->is_streaming;
+    dcount_data.spurious_reset_count = vch->spurious_reset_count;
+    dcount_data.reset_count = vch->reset_count;
     spin_unlock_irqrestore(&vch->lock, flags);
 
     result = copy_to_user(get_dcount, &dcount_data, sizeof(struct tw6869_frame_data));
@@ -1129,13 +1141,13 @@ static void tw_delayed_dma_rst(struct work_struct *work)
 	struct tw6869_dev *dev = vch->dev;
 	unsigned long flags;
 
-	dev_info(&dev->pdev->dev, "vch%i deferred reset\n", vch->id);
+	dev_dbg(&dev->pdev->dev, "vch%i deferred reset\n", vch->id);
 	spin_lock_irqsave(&dev->rlock, flags);
 	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_RST3);
 	spin_unlock_irqrestore(&dev->rlock, flags);
-	spin_lock_irqsave(&vch->hw_rst_lock, flags);
+	spin_lock(&vch->hw_rst_lock);
 	vch->hw_rst_scheduled = 0;
-	spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
+	spin_unlock(&vch->hw_rst_lock);
 }
 
 static int tw6869_vch_register(struct tw6869_vch *vch)
