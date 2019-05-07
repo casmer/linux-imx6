@@ -360,7 +360,8 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	if (err || (vch->pb != pb)) {
 		vch->pb = 0;
 		spin_unlock(&vch->lock);
-		return TW_DMA_RST2;
+		mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
+		//return TW_DMA_RST2;
 	}
 
 	if (!list_empty(&vch->buf_list)) {
@@ -457,12 +458,13 @@ static void tw_delayed_irq(struct work_struct *work)
     unsigned long flags;
     unsigned int int_sts, fifo_sts, pb_sts, dma_en, id;
 
+    spin_lock_irqsave(&dev->rlock, flags);
         int_sts = tw_read(dev, R32_INT_STATUS);
         fifo_sts = tw_read(dev, R32_FIFO_STATUS);
         pb_sts = tw_read(dev, R32_PB_STATUS);
         dma_en = tw_read(dev, R32_DMA_CHANNEL_ENABLE);
         dma_en &= tw_read(dev, R32_DMA_CMD);
-
+    spin_unlock_irqrestore(&dev->rlock, flags);
         for (id = 0; id < (2 * TW_CH_MAX); id++) {
             unsigned int verr = fifo_sts & TW_VERR(id);
             unsigned int sig = !((fifo_sts >> id) & 0x1);
@@ -474,9 +476,11 @@ static void tw_delayed_irq(struct work_struct *work)
                     tw6869_airq(dev, id, pb);
 
                 if (cmd) {
-                    spin_lock(&dev->rlock, flags);
-                    tw6869_id_dma_cmd(dev, id, cmd);
-                    spin_unlock(&dev->rlock, flags);
+
+
+//                    spin_lock_irqsave(&dev->rlock, flags);
+//                    tw6869_id_dma_cmd(dev, id, cmd);
+//                    spin_unlock_irqrestore(&dev->rlock, flags);
                 } else {
                     dev->id_err[id] = 0;
                 }
@@ -488,7 +492,39 @@ static void tw_delayed_irq(struct work_struct *work)
 static irqreturn_t tw6869_irq(int irq, void *dev_id)
 {
 	struct tw6869_dev *dev = dev_id;
-	mod_delayed_work(system_wq, &dev->hw_irq, 1);
+	//mod_delayed_work(system_wq, &dev->hw_irq, 0);
+
+	 unsigned long flags;
+	    unsigned int int_sts, fifo_sts, pb_sts, dma_en, id;
+
+	    spin_lock_irqsave(&dev->rlock, flags);
+	        int_sts = tw_read(dev, R32_INT_STATUS);
+	        fifo_sts = tw_read(dev, R32_FIFO_STATUS);
+	        pb_sts = tw_read(dev, R32_PB_STATUS);
+	        dma_en = tw_read(dev, R32_DMA_CHANNEL_ENABLE);
+	        dma_en &= tw_read(dev, R32_DMA_CMD);
+	    spin_unlock_irqrestore(&dev->rlock, flags);
+	        for (id = 0; id < (2 * TW_CH_MAX); id++) {
+	            unsigned int verr = fifo_sts & TW_VERR(id);
+	            unsigned int sig = !((fifo_sts >> id) & 0x1);
+
+	            if ((dma_en & BIT(id)) && ((int_sts & BIT(id)) || verr)) {
+	                unsigned int pb = !!(pb_sts & BIT(id));
+	                unsigned int cmd = (BIT(id) & TW_VID) ?
+	                    tw6869_virq(dev, id, pb, sig, verr) :
+	                    tw6869_airq(dev, id, pb);
+
+	                if (cmd) {
+
+	                      //reset is done in virg, not worried about airq rightnow.
+	//                    spin_lock_irqsave(&dev->rlock, flags);
+	//                    tw6869_id_dma_cmd(dev, id, cmd);
+	//                    spin_unlock_irqrestore(&dev->rlock, flags);
+	                } else {
+	                    dev->id_err[id] = 0;
+	                }
+	            }
+	        }
 	return IRQ_HANDLED;
 }
 
