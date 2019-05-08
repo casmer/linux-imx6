@@ -306,13 +306,17 @@ static void cancel_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
     spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
 }
 
-static void schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
+static int schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
 {
     unsigned long flags;
-    spin_lock_irqsave(&vch->hw_rst_lock, flags);
-    mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
-    spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
-    dev_info(&dev->pdev->dev, "scheduled vch%u hw_rst\n", vch->id);
+    if (spin_trylock_irqsave(&vch->hw_rst_lock, flags))
+    {
+        mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
+        spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
+        dev_info(&dev->pdev->dev, "scheduled vch%u hw_rst\n", vch->id);
+        return 1;
+    }
+    return 0;
 
 }
 static unsigned int tw6869_virq(struct tw6869_dev *dev,
@@ -779,6 +783,14 @@ static int tw6869_enum_fmt_vid_cap(struct file *file, void *priv,
 	return 0;
 }
 
+
+static int tw6869_attempt_reset(struct tw6869_vch *vch, unsigned long *didReset)
+{
+    struct tw6869_dev *dev = vch->dev;
+    *didReset = schedule_hw_reset(vch, dev);
+    return 0;
+}
+
 static int tw6869_vch_set_delay(struct tw6869_vch *vch, unsigned long *delay)
 {
     unsigned long flags;
@@ -828,15 +840,21 @@ static int tw6869_vch_get_frame_data(struct tw6869_vch *vch, struct tw6869_frame
     struct tw6869_frame_data dcount_data;
     unsigned long result;
     dev_dbg(&dev->pdev->dev, "vch%i in dcount get\n", ID2CH(vch->id));
-    spin_lock_irqsave(&vch->lock, flags);
-    dcount_data.dropped_frame_count = vch->dcount;
-    dcount_data.sequence = vch->sequence;
-    dcount_data.dma_number = ID2CH(vch->id);
-    dcount_data.is_streaming = vch->is_streaming;
-    dcount_data.spurious_reset_count = vch->spurious_reset_count;
-    dcount_data.reset_count = vch->reset_count;
-    spin_unlock_irqrestore(&vch->lock, flags);
-
+    if (spin_trylock_irqsave(&vch->lock, flags))
+    {
+        dcount_data.dropped_frame_count = vch->dcount;
+        dcount_data.sequence = vch->sequence;
+        dcount_data.dma_number = ID2CH(vch->id);
+        dcount_data.is_streaming = vch->is_streaming;
+        dcount_data.spurious_reset_count = vch->spurious_reset_count;
+        dcount_data.reset_count = vch->reset_count;
+        dcount_data.failed = 0;
+        spin_unlock_irqrestore(&vch->lock, flags);
+    }
+    else
+    {
+        dcount_data.failed = -1;
+    }
     result = copy_to_user(get_dcount, &dcount_data, sizeof(struct tw6869_frame_data));
     dev_dbg(&dev->pdev->dev, "vch%i copy to user result [%lu]\n", ID2CH(vch->id), result);
 
@@ -855,9 +873,9 @@ static long custom_ioctl(struct file *file, void *priv,
     {
         case TW6869_HW_RESET_IOCTL:
 
-            dev_dbg(&dev->pdev->dev, "vch%i manual reset TW6869_HW_RESET_IOCTL\n",
+            dev_info(&dev->pdev->dev, "vch%i manual reset TW6869_HW_RESET_IOCTL\n",
                 ID2CH(vch->id));
-            schedule_hw_reset(vch, dev);
+            tw6869_attempt_reset(vch, arg);
             break;
         case TW6869_HW_RESET_SET_DELAY_IOCTL:
             dev_dbg(&dev->pdev->dev, "vch%i set manual reset delay\n",

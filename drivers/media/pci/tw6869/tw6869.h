@@ -146,6 +146,8 @@ struct tw6869_frame_data {
     unsigned int spurious_reset_count;
     /// @brief count of resets detected
     unsigned int reset_count;
+    /// @brief request failed
+    unsigned int failed;
 };
 
 /// @brief default delay for Hardware reset commands.
