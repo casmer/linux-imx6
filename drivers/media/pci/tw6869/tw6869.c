@@ -305,14 +305,19 @@ static void cancel_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
     spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
 }
 
-static int schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev)
+static int schedule_hw_reset(struct tw6869_vch *vch, struct tw6869_dev *dev, uint source)
 {
     unsigned long flags;
     if (spin_trylock_irqsave(&vch->hw_rst_lock, flags))
     {
         mod_delayed_work(system_wq, &vch->hw_rst, vch->hw_rst_delay);
         spin_unlock_irqrestore(&vch->hw_rst_lock, flags);
-        dev_info(&dev->pdev->dev, "scheduled vch%u hw_rst\n", vch->id);
+        if (source == 1)
+            dev_info(&dev->pdev->dev, "scheduled vch%u hw_rst sig\n", vch->id);
+        if (source == 2)
+            dev_info(&dev->pdev->dev, "scheduled vch%u hw_rst err\n", vch->id);
+        if (source == 3)
+            dev_info(&dev->pdev->dev, "scheduled vch%u hw_rst manual\n", vch->id);
         return 1;
     }
     return 0;
@@ -340,15 +345,15 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	    dev_info(&dev->pdev->dev, "vch%u signal %s\n",
 			ID2CH(id), sig ? "detected" : "lost");
 		vch->sig = sig;
-		schedule_reset = 1;
+		schedule_reset = sig ? 1 : 0;
 	}
 
 	if (err || (vch->pb != pb)) {
-		vch->pb = 0;
-		spin_unlock_irqrestore(&vch->lock, flags);
-		schedule_hw_reset(vch, dev);
-
-		return 0;
+		vch->pb = pb;
+		//spin_unlock_irqrestore(&vch->lock, flags);
+		//schedule_hw_reset(vch, dev, 2);
+		//schedule_reset = 2
+		//return 0;
 	}
 
 
@@ -367,7 +372,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	spin_unlock_irqrestore(&vch->lock, flags);
 	if (schedule_reset)
     {
-        schedule_hw_reset(vch, dev);
+        schedule_hw_reset(vch, dev, schedule_reset);
     }
 	if (done && next) {
 		tw_write(dev, pb ? R32_DMA_B_ADDR(id) : R32_DMA_P_ADDR(id), next->dma);
@@ -382,7 +387,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	    sequence = vch->sequence;
 	    spin_unlock_irqrestore(&vch->lock, flags);
 
-	    if (dcount % 100 == 0)
+	    if (dcount % 10 == 0)
         {
             dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u\n",
                 ID2CH(id), vch->sequence, dcount);
@@ -786,7 +791,7 @@ static int tw6869_enum_fmt_vid_cap(struct file *file, void *priv,
 static int tw6869_attempt_reset(struct tw6869_vch *vch, unsigned long *didReset)
 {
     struct tw6869_dev *dev = vch->dev;
-    *didReset = schedule_hw_reset(vch, dev);
+    *didReset = schedule_hw_reset(vch, dev, 3);
     return 0;
 }
 
