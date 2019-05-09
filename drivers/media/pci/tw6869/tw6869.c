@@ -276,20 +276,19 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 	        unsigned int source_id = cmd + 1 - TW_DMA_RST1;
             if (!tw_id_is_on(dev, id)) {
                 vch->spurious_reset_count++;
-                dev_info(&dev->pdev->dev, "DMA %u spurious RST [RSRC %u] [%u/%u]\n",
+                dev_info(&dev->pdev->dev, "DMA %u spurious RST [RSRC %u] (ignored) [%u/%u]\n",
                          id, source_id, vch->reset_count, vch->spurious_reset_count);
             }
-            else
-            {
-                vch->reset_count++;
-                tw_id_off(dev, id);
-                if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
-                    dev_err(&dev->pdev->dev, "DMA %u forced OFF [RSRC %u]\n", id, source_id);
-                    break;
-                }
-                dev->id_err[ID2ID(id)] = 0;
-                tw_id_on(dev, id);
+
+
+            vch->reset_count++;
+            tw_id_off(dev, id);
+            if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
+                dev_err(&dev->pdev->dev, "DMA %u forced OFF [RSRC %u]\n", id, source_id);
+                break;
             }
+            tw_id_on(dev, id);
+
             dev_info(&dev->pdev->dev, "DMA %u RST [RSRC %u]\n", id, source_id);
 	    }
 		break;
@@ -460,9 +459,9 @@ static irqreturn_t tw6869_irq(int irq, void *dev_id)
 				tw6869_airq(dev, id, pb);
 
 			if (cmd) {
-				spin_lock_irqsave(&dev->rlock, flags);
-				tw6869_id_dma_cmd(dev, id, cmd);
-				spin_unlock_irqrestore(&dev->rlock, flags);
+				//spin_lock_irqsave(&dev->rlock, flags);
+				//tw6869_id_dma_cmd(dev, id, cmd);
+				//spin_unlock_irqrestore(&dev->rlock, flags);
 			} else {
 				dev->id_err[id] = 0;
 			}
@@ -1143,6 +1142,7 @@ static void tw_delayed_dma_rst(struct work_struct *work)
 	dev_dbg(&dev->pdev->dev, "vch%i deferred reset\n", vch->id);
 	spin_lock_irqsave(&dev->rlock, flags);
 	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_RST3);
+	dev->id_err[ID2ID(vch->id)] = 0;
 	spin_unlock_irqrestore(&dev->rlock, flags);
 }
 
