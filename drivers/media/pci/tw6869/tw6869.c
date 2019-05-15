@@ -262,11 +262,11 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 	case TW_DMA_ON:
 		dev->id_err[ID2ID(id)] = 0;
 		tw_id_on(dev, id);
-		dev_info(&dev->pdev->dev, "DMA %u ON\n", id);
+		//dev_info(&dev->pdev->dev, "DMA %u ON\n", id);
 		break;
 	case TW_DMA_OFF:
 		tw_id_off(dev, id);
-		dev_info(&dev->pdev->dev, "DMA %u OFF\n", id);
+		//dev_info(&dev->pdev->dev, "DMA %u OFF\n", id);
 		break;
 	case TW_DMA_RST1:
 	case TW_DMA_RST2:
@@ -276,20 +276,20 @@ static void tw6869_id_dma_cmd(struct tw6869_dev *dev,
 	        unsigned int source_id = cmd + 1 - TW_DMA_RST1;
             if (!tw_id_is_on(dev, id)) {
                 vch->spurious_reset_count++;
-                dev_info(&dev->pdev->dev, "DMA %u spurious RST [RSRC %u] (ignored) [%u/%u]\n",
-                         id, source_id, vch->reset_count, vch->spurious_reset_count);
+                //dev_info(&dev->pdev->dev, "DMA %u spurious RST [RSRC %u] (ignored) [%u/%u]\n",
+                //         id, source_id, vch->reset_count, vch->spurious_reset_count);
             }
 
 
             vch->reset_count++;
             tw_id_off(dev, id);
             if (++dev->id_err[ID2ID(id)] > TW_DMA_ERR_MAX) {
-                dev_err(&dev->pdev->dev, "DMA %u forced OFF [RSRC %u]\n", id, source_id);
+                //dev_err(&dev->pdev->dev, "DMA %u forced OFF [RSRC %u]\n", id, source_id);
                 break;
             }
             tw_id_on(dev, id);
 
-            dev_info(&dev->pdev->dev, "DMA %u RST [RSRC %u]\n", id, source_id);
+            //dev_info(&dev->pdev->dev, "DMA %u RST [RSRC %u]\n", id, source_id);
 	    }
 		break;
 	default:
@@ -342,8 +342,8 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	}
 
 	if (vch->sig != sig) {
-	    dev_info(&dev->pdev->dev, "vch%u signal %s\n",
-			ID2CH(id), sig ? "detected" : "lost");
+	    //dev_info(&dev->pdev->dev, "vch%u signal %s\n",
+		//	ID2CH(id), sig ? "detected" : "lost");
 		vch->sig = sig;
 		schedule_reset = sig ? 1 : 0;
 	}
@@ -352,7 +352,7 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 		vch->pb = pb;
 		//spin_unlock_irqrestore(&vch->lock, flags);
 		//schedule_hw_reset(vch, dev, 2);
-		//schedule_reset = 2
+		//schedule_reset = 2;
 		//return 0;
 	}
 
@@ -387,11 +387,11 @@ static unsigned int tw6869_virq(struct tw6869_dev *dev,
 	    sequence = vch->sequence;
 	    spin_unlock_irqrestore(&vch->lock, flags);
 
-	    if (dcount % 10 == 0)
-        {
-            dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u\n",
-                ID2CH(id), vch->sequence, dcount);
-        }
+//	    if (dcount % 10 == 0)
+//        {
+//            dev_info(&dev->pdev->dev, "vch%u NOBUF seq=%u dcount=%u\n",
+//                ID2CH(id), vch->sequence, dcount);
+//        }
 	}
 	return 0;
 }
@@ -803,13 +803,13 @@ static int tw6869_vch_set_delay(struct tw6869_vch *vch, unsigned long *delay)
     if (*delay>0)
     {
     vch->hw_rst_delay = *delay;
-    dev_info(&dev->pdev->dev, "vch%i manual reset delay set to %lu\n",
-        ID2CH(vch->id), vch->hw_rst_delay);
+//    dev_info(&dev->pdev->dev, "vch%i manual reset delay set to %lu\n",
+//        ID2CH(vch->id), vch->hw_rst_delay);
     }
     else
     {
-        dev_info(&dev->pdev->dev, "vch%i manual reset delay NOT set, invalid value [%lu]\n",
-                ID2CH(vch->id), *delay);
+//        dev_info(&dev->pdev->dev, "vch%i manual reset delay NOT set, invalid value [%lu]\n",
+//                ID2CH(vch->id), *delay);
     }
     spin_unlock_irqrestore(&dev->rlock, flags);
     return 0;
@@ -1149,6 +1149,11 @@ static void tw_delayed_dma_rst(struct work_struct *work)
 	tw6869_id_dma_cmd(dev, vch->id, TW_DMA_RST3);
 	dev->id_err[ID2ID(vch->id)] = 0;
 	spin_unlock_irqrestore(&dev->rlock, flags);
+
+	spin_lock_irqsave(&vch->lock, flags);
+    vch->dcount =0;
+    vch->sequence = 0;
+	spin_unlock_irqrestore(&vch->lock, flags);
 }
 
 static int tw6869_vch_register(struct tw6869_vch *vch)
