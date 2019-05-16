@@ -85,6 +85,8 @@ static int stop_streaming(struct vb2_queue *vq);
  * @input: input line for video signal
  * @sequence: sequence number of acquired buffer
  * @dcount: number of dropped frames
+ * @spurious_reset_count: number of spurious resets detected
+ * @reset_count: number of resets detected
  * @fps: current frame rate
  */
 struct tw6869_vch {
