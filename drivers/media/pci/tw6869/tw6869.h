@@ -146,7 +146,7 @@ struct tw6869_frame_data {
     unsigned int spurious_reset_count;
     /// @brief count of resets detected
     unsigned int reset_count;
-    /// @brief request failed
+    /// @brief request failed (0 - no failure, -1 - failed to at spin lock, no data retrieved.)
     unsigned int failed;
 };
 
